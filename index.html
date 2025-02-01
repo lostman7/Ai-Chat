@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Chat Interface</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f0f0; }
+.chat-container { max-width: 800px; margin: 0 auto; }
+.chat-window { height: 400px; border: 1px solid #ccc; padding: 10px; background-color: white; overflow-y: auto; }
+.input-container { margin-top: 20px; }
+input[type="text"] { width: 70%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
+button { padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+button:hover { background-color: #45a049; }
+.status-indicator { margin-top: 20px; }
+.memory-status { color: #666; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="chat-container">
+<div class="chat-window" id="chatWindow"></div>
+<div class="input-container">
+<input type="text" id="messageInput" placeholder="Type your message...">
+<button onclick="sendMessage()">Send</button>
+<button onclick="toggleVoice()">Voice Input</button>
+</div>
+<div class="status-indicator">
+<span id="modelStatus">Model Status: No Model Loaded</span><br>
+<span class="memory-status" id="memoryStatus">Memory Usage: 0/500 MB</span>
+</div>
+</div>
+<script>
+// Initialize memory
+let memory = [];
+const MAX_MEMORY_SIZE = 500 * 1024 * 1024; // 500MB
+
+// IndexedDB setup
+let db;
+const request = indexedDB.open('chatDatabase', 1);
+
+request.onupgradeneeded = function(event) {
+  const db = event.target.result;
+  db.createObjectStore('messages', { keyPath: 'timestamp' });
+};
+
+request.onsuccess = function(event) {
+  db = event.target.result;
+};
+
+function sendMessage() {
+  const input = document.getElementById('messageInput');
+  const message = input.value.trim();
+  if (message) {
+    addMessageToChat(message, 'user');
+    addToMemory(message);
+    // Clear input
+    input.value = '';
+  }
+}
+
+function addMessageToChat(message, sender) {
+  const chatWindow = document.getElementById('chatWindow');
+  const messageElement = document.createElement('div');
+  if (sender === 'user') {
+    messageElement.style.textAlign = 'right';
+    messageElement.style.color = '#4CAF50';
+  } else {
+    messageElement.style.textAlign = 'left';
+    messageElement.style.color = '#666';
+  }
+  messageElement.textContent = message;
+  chatWindow.appendChild(messageElement);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+function addToMemory(message) {
+  const timestamp = new Date();
+  memory.push({ timestamp, content: message });
+  // Check memory usage
+  const currentMemorySize = calculateMemoryUsage();
+  updateMemoryStatus(currentMemorySize);
+  if (currentMemorySize >= MAX_MEMORY_SIZE) {
+    addMessageToChat("Memory full - messages will now be saved to long-term storage", 'system');
+    saveToLongTermMemory();
+    memory = [];
+  }
+}
+
+function calculateMemoryUsage() {
+  // Calculate total memory used by all stored messages
+  let size = 0;
+  for (const msg of memory) {
+    size += JSON.stringify(msg).length * 2; // Approximate UTF-8 byte count
+  }
+  return size;
+}
+
+function updateMemoryStatus(currentSize) {
+  const statusElement = document.getElementById('memoryStatus');
+  statusElement.textContent = `Memory Usage: ${Math.round(currentSize / (1024 * 1024))}/${Math.round(MAX_MEMORY_SIZE / (1024 * 1024))} MB`;
+}
+
+function saveToLongTermMemory() {
+  const transaction = db.transaction(['messages'], 'readwrite');
+  const objectStore = transaction.objectStore('messages');
+
+  memory.forEach(msg => {
+    objectStore.add({ timestamp: msg.timestamp, content: msg.content });
+  });
+
+  transaction.oncomplete = function(event) {
+    addMessageToChat("Messages saved to long-term storage", 'system');
+  };
+
+  transaction.onerror = function(event) {
+    console.error('Error saving messages:', event);
+  };
+}
+
+function toggleVoice() {
+  if ('webkitSpeechRecognition' in window) {
+    const recognition = new webkitSpeechRecognition();
+    recognition.onresult = function(event) {
+      const message = event.results[0][0].transcript;
+      addMessageToChat(message, 'user');
+      addToMemory(message);
+    };
+    recognition.start();
+  } else {
+    alert('Voice input is not supported in this browser.');
+  }
+}
+
+function speakText(text) {
+  if ('speechSynthesis' in window) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    speechSynthesis.speak(utterance);
+  } else {
+    console.error('Text-to-speech is not supported in this browser.');
+  }
+}
+</script>
+</body>
+</html>
